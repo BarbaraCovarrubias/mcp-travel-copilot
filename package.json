@@ -1,0 +1,25 @@
+{
+  "name": "mcp-travel-copilot",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "travel-copilot": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "better-sqlite3": "^11.1.2",
+    "grammy": "^1.30.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.0"
+  }
+}
