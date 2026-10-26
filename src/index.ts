@@ -6,9 +6,9 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { db } from './db.js';
+import { db, initDb } from './db.js';
 import { calculateOsmRoute } from './services/osmRouting.js';
-import { optimizeAttractionsOrdew } from './services/routeOptimizer.js';
+import { optimizeAttractionsOrder } from './services/routeOptimizer.js';
 import { generateItineraryICS } from './services/icsExporter.js';
 import { startCalendarServer } from './services/calendarServer.js';
 import { startTelegramBot } from './telegramBot.js';
@@ -22,7 +22,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'add_itinerary_segment',
-      description: 'Registra traslados o reservas de hotelería.',
+      description: 'Registra traslados o reservas de hoteleria.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -53,7 +53,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'optimize_attractions_order',
-      description: 'Ordena de forma óptima un circuito de paradas urbanas por distancia mínima.',
+      description: 'Ordena de forma optima un circuito de paradas urbanas por distancia minima.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -79,35 +79,41 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
 
   if (name === 'add_itinerary_segment') {
-    const stmt = db.prepare(`
-      INSERT INTO segments (trip_id, type, origin, destination, start_time, end_time, booking_code, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(
-      args!.trip_id,
-      args!.type,
-      args!.origin || null,
-      args!.destination || null,
-      args!.start_time,
-      args!.end_time,
-      args!.booking_code || null,
-      args!.notes || null
-    );
-    return { content: [{ type: 'text', text: JSON.stringify({ status: 'success', id: info.lastInsertRowid }) }] };
+    const rawArgs = (args || {}) as Record<string, any>;
+    const res = await db.execute({
+      sql: `
+        INSERT INTO segments (trip_id, type, origin, destination, start_time, end_time, booking_code, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        String(rawArgs.trip_id),
+        String(rawArgs.type),
+        rawArgs.origin ? String(rawArgs.origin) : null,
+        rawArgs.destination ? String(rawArgs.destination) : null,
+        String(rawArgs.start_time),
+        String(rawArgs.end_time),
+        rawArgs.booking_code ? String(rawArgs.booking_code) : null,
+        rawArgs.notes ? String(rawArgs.notes) : null,
+      ],
+    });
+    return { content: [{ type: 'text', text: JSON.stringify({ status: 'success', id: Number(res.lastInsertRowid) }) }] };
   }
 
   if (name === 'calculate_transit_time') {
-    const res = await calculateOsmRoute(String(args!.origin), String(args!.destination), args!.mode as any);
+    const rawArgs = (args || {}) as Record<string, any>;
+    const res = await calculateOsmRoute(String(rawArgs.origin), String(rawArgs.destination), rawArgs.mode as any);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
   }
 
   if (name === 'optimize_attractions_order') {
-    const res = await optimizeAttractionsOrder(args!.attractions as string[], args!.mode as any);
+    const rawArgs = (args || {}) as Record<string, any>;
+    const res = await optimizeAttractionsOrder(rawArgs.attractions as string[], rawArgs.mode as any);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
   }
 
   if (name === 'export_itinerary_to_ics') {
-    const ics = generateItineraryICS(String(args!.trip_id));
+    const rawArgs = (args || {}) as Record<string, any>;
+    const ics = await generateItineraryICS(String(rawArgs.trip_id));
     return { content: [{ type: 'text', text: ics }] };
   }
 
@@ -122,14 +128,19 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
 
 server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
   if (req.params.uri === 'trip://itinerary/current') {
-    const segments = db.prepare('SELECT * FROM segments ORDER BY start_time ASC').all();
-    const expenses = db.prepare('SELECT * FROM expenses').all();
-    return { contents: [{ uri: req.params.uri, mimeType: 'application/json', text: JSON.stringify({ segments, expenses }, null, 2) }] };
+    const segRes = await db.execute('SELECT * FROM segments ORDER BY start_time ASC');
+    const expRes = await db.execute('SELECT * FROM expenses');
+    return {
+      contents: [
+        { uri: req.params.uri, mimeType: 'application/json', text: JSON.stringify({ segments: segRes.rows, expenses: expRes.rows }, null, 2) },
+      ],
+    };
   }
   throw new Error(`Recurso no encontrado: ${req.params.uri}`);
 });
 
 async function run() {
+  await initDb();
   startCalendarServer({ port: Number(process.env.PORT_CALENDAR) || 3456 });
   startTelegramBot().catch((err) => console.error('[Telegram] Error:', err));
   const transport = new StdioServerTransport();
@@ -137,6 +148,6 @@ async function run() {
 }
 
 run().catch((err) => {
-  console.error('Error fatal MCO Server:', err);
+  console.error('Error fatal MCP Server:', err);
   process.exit(1);
 });

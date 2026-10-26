@@ -1,36 +1,32 @@
 import { randomBytes } from 'node:crypto';
 import { db } from '../db.js';
 
-export function getOrCreateCalendarToken(tripId: string): string {
-  const existing = db.prepare(`
-    SELECT token FROM calendar_tokens 
-    WHERE trip_id = ? AND revoked = 0 
-    ORDER BY created_at DESC LIMIT 1
-  `).get(tripId) as { token: string } | undefined;
+export async function getOrCreateCalendarToken(tripId: string): Promise<string> {
+  const result = await db.execute({
+    sql: 'SELECT token FROM calendar_tokens WHERE trip_id = ? AND revoked = 0 ORDER BY created_at DESC LIMIT 1',
+    args: [tripId],
+  });
 
-  if (existing) return existing.token;
+  if (result.rows.length > 0) {
+    return String(result.rows[0].token);
+  }
 
   const token = randomBytes(32).toString('hex');
   const now = Math.floor(Date.now() / 1000);
 
-  db.prepare(`
-    INSERT INTO calendar_tokens (trip_id, token, created_at, revoked)
-    VALUES (?, ?, ?, 0)
-  `).run(tripId, token, now);
+  await db.execute({
+    sql: 'INSERT INTO calendar_tokens (trip_id, token, created_at, revoked) VALUES (?, ?, ?, 0)',
+    args: [tripId, token, now],
+  });
 
   return token;
 }
 
-export function validateCalendarToken(tripId: string, token: string): boolean {
+export async function validateCalendarToken(tripId: string, token: string): Promise<boolean> {
   if (!token || !tripId) return false;
-  const record = db.prepare(`
-    SELECT trip_id FROM calendar_tokens 
-    WHERE token = ? AND trip_id = ? AND revoked = 0
-  `).get(token, tripId);
-  return Boolean(record);
-}
-
-export function revokeCalendarToken(token: string): boolean {
-  const result = db.prepare('UPDATE calendar_tokens SET revoked = 1 WHERE token = ?').run(token);
-  return result.changes > 0;
+  const result = await db.execute({
+    sql: 'SELECT trip_id FROM calendar_tokens WHERE token = ? AND trip_id = ? AND revoked = 0',
+    args: [token, tripId],
+  });
+  return result.rows.length > 0;
 }
